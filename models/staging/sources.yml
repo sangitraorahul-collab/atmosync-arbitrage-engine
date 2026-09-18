@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: telemetry
+    description: "Raw IoT telemetry ingested from Kafka into MySQL."
+    schema: telemetry_db
+    tables:
+      - name: raw_data
+        description: "Raw container telemetry records."

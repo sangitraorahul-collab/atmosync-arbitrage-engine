@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: stg_iot_telemetry
+    description: "Cleaned and standardized IoT telemetry data."
+
+    columns:
+      - name: id
+        description: "Unique telemetry record ID."
+        tests:
+          - not_null
+          - unique
+
+      - name: container_id
+        description: "Container identifier."
+        tests:
+          - not_null
+
+      - name: telemetry_timestamp
+        description: "Timestamp of the telemetry event."
+        tests:
+          - not_null
+
+      - name: temperature
+        description: "Temperature measurement."
+        tests:
+          - not_null
+
+      - name: humidity
+        description: "Humidity measurement."
+        tests:
+          - not_null
+
+      - name: vibration
+        description: "Vibration measurement."
+
+      - name: route
+        description: "Transportation route."
+
+      - name: status
+        description: "Normalized container status."
+        tests:
+          - not_null

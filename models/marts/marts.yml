@@ -1,0 +1,51 @@
+version: 2
+
+models:
+  - name: fct_container_telemetry
+    description: >
+      Analytical telemetry model containing cleaned IoT
+      measurements and derived environmental bands.
+
+    columns:
+      - name: id
+        description: "Unique telemetry record ID."
+        tests:
+          - not_null
+          - unique
+
+      - name: container_id
+        description: "Container identifier."
+        tests:
+          - not_null
+
+      - name: telemetry_timestamp
+        description: "Timestamp of the telemetry event."
+        tests:
+          - not_null
+
+      - name: temperature
+        description: "Temperature measurement."
+        tests:
+          - not_null
+
+      - name: humidity
+        description: "Humidity measurement."
+        tests:
+          - not_null
+
+      - name: vibration
+        description: "Vibration measurement."
+
+      - name: route
+        description: "Transportation route."
+
+      - name: status
+        description: "Normalized container status."
+        tests:
+          - not_null
+
+      - name: temperature_band
+        description: "Temperature classification based on project-defined thresholds."
+
+      - name: humidity_band
+        description: "Humidity classification based on project-defined thresholds."
