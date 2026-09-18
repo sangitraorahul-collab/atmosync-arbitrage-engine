@@ -2,8 +2,12 @@ version: 2
 
 sources:
   - name: telemetry
-    description: "Raw IoT telemetry ingested from Kafka into MySQL."
+    description: "Raw IoT telemetry and mock commodity pricing data."
     schema: telemetry_db
+
     tables:
       - name: raw_data
         description: "Raw container telemetry records."
+
+      - name: commodity_prices
+        description: "Mock commodity pricing records used for analytics."
