@@ -25,4 +25,11 @@
 
 
 Week 3 Part A – dbt validation completed successfully.
+### Day 6 – Dashboard Integration Validation
+
+- Verified the dbt dependency chain:
+  fct_container_telemetry → fct_spoilage_risk → fct_distance_to_market → fct_arbitrage_recommendation
+- Successfully built and tested the dashboard-support models.
+- Validated the supporting models in MySQL.
+- Prepared the transformed output for Superset dashboard integration.
 
