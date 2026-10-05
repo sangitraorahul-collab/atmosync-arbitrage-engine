@@ -44,6 +44,7 @@ def get_alert_candidates(connection):
     cursor.execute(query)
     rows = cursor.fetchall()
     cursor.close()
+
     return rows
 
 
@@ -113,8 +114,10 @@ def build_alert_text(row):
         f"*Estimated Time to Spoilage:* "
         f"{row['estimated_time_to_spoilage_hours']} hours\n"
         f"*Recommended Action:* {row['recommended_action']}\n"
-        f"*Routing Recommendation:* {row['routing_recommendation']}\n"
-        f"*Arbitrage Priority:* {row['arbitrage_priority'].upper()}\n"
+        f"*Routing Recommendation:* "
+        f"{row['routing_recommendation']}\n"
+        f"*Arbitrage Priority:* "
+        f"{row['arbitrage_priority'].upper()}\n"
         f"*Reroute Required:* "
         f"{'YES' if int(row['reroute_required']) == 1 else 'NO'}"
     )
@@ -140,6 +143,7 @@ def send_slack_alert(row):
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             return response.read().decode("utf-8")
+
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Slack request failed: {exc}") from exc
 
@@ -188,11 +192,109 @@ def send_email_alert(row):
     message["To"] = recipient
     message.set_content(build_email_body(row))
 
-    with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as server:
+    with smtplib.SMTP_SSL(
+        smtp_host,
+        smtp_port,
+        timeout=20
+    ) as server:
         server.login(username, password)
         server.send_message(message)
 
     return "Email sent successfully"
+
+
+# -----------------------------
+# DAY 5: Alert Activity Logging
+# -----------------------------
+
+def get_alert_activity(connection, record_id, alert_level):
+    query = """
+        SELECT
+            id,
+            slack_status,
+            email_status,
+            notification_status
+        FROM alert_activity
+        WHERE source_record_id = %s
+          AND alert_level = %s
+        LIMIT 1
+    """
+
+    cursor = connection.cursor(dictionary=True)
+    cursor.execute(query, (record_id, alert_level))
+    result = cursor.fetchone()
+    cursor.close()
+
+    return result
+
+
+def create_alert_activity(connection, row, alert_level):
+    query = """
+        INSERT INTO alert_activity (
+            source_record_id,
+            container_id,
+            alert_level,
+            slack_status,
+            email_status,
+            notification_status
+        )
+        VALUES (%s, %s, %s, 'pending', 'pending', 'pending')
+    """
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        query,
+        (
+            row["id"],
+            row["container_id"],
+            alert_level,
+        ),
+    )
+
+    connection.commit()
+    cursor.close()
+
+
+def update_alert_activity(
+    connection,
+    record_id,
+    alert_level,
+    slack_status=None,
+    email_status=None,
+    notification_status=None,
+):
+    updates = []
+    values = []
+
+    if slack_status is not None:
+        updates.append("slack_status = %s")
+        values.append(slack_status)
+
+    if email_status is not None:
+        updates.append("email_status = %s")
+        values.append(email_status)
+
+    if notification_status is not None:
+        updates.append("notification_status = %s")
+        values.append(notification_status)
+
+    if not updates:
+        return
+
+    query = f"""
+        UPDATE alert_activity
+        SET {", ".join(updates)}
+        WHERE source_record_id = %s
+          AND alert_level = %s
+    """
+
+    values.extend([record_id, alert_level])
+
+    cursor = connection.cursor()
+    cursor.execute(query, values)
+    connection.commit()
+    cursor.close()
 
 
 def main():
@@ -200,6 +302,7 @@ def main():
 
     try:
         connection = get_connection()
+
         rows = get_alert_candidates(connection)
 
         print(f"Found {len(rows)} alert candidates.")
@@ -208,25 +311,202 @@ def main():
             print("No alert candidates found.")
             return
 
+        # Process only the latest qualifying record for testing.
         row = rows[0]
 
         if not is_alert_candidate(row):
             print("Selected record is not a valid alert candidate.")
             return
 
-        print(f"Testing alert for container: {row['container_id']}")
+        alert_level = classify_alert(row)
 
-        print("Sending Slack alert...")
-        print(f"Slack response: {send_slack_alert(row)}")
+        print(
+            f"Testing alert for container: "
+            f"{row['container_id']}"
+        )
 
-        print("Sending email alert...")
-        print(send_email_alert(row))
+        # -----------------------------
+        # Check existing alert activity
+        # -----------------------------
+
+        activity = get_alert_activity(
+            connection,
+            row["id"],
+            alert_level,
+        )
+
+        if activity is None:
+            create_alert_activity(
+                connection,
+                row,
+                alert_level,
+            )
+
+            activity = {
+                "slack_status": "pending",
+                "email_status": "pending",
+                "notification_status": "pending",
+            }
+
+            print("New alert activity created.")
+
+        elif activity["notification_status"] == "sent":
+            print(
+                f"Duplicate alert skipped: "
+                f"{row['container_id']} / {alert_level}"
+            )
+            return
+
+        # -----------------------------
+        # Slack notification
+        # -----------------------------
+
+        if activity["slack_status"] != "sent":
+
+            try:
+                print("Sending Slack alert...")
+
+                slack_response = send_slack_alert(row)
+
+                print(
+                    f"Slack response: "
+                    f"{slack_response}"
+                )
+
+                update_alert_activity(
+                    connection,
+                    row["id"],
+                    alert_level,
+                    slack_status="sent",
+                )
+
+                activity["slack_status"] = "sent"
+
+            except Exception as exc:
+
+                print(f"Slack error: {exc}")
+
+                update_alert_activity(
+                    connection,
+                    row["id"],
+                    alert_level,
+                    slack_status="failed",
+                )
+
+                activity["slack_status"] = "failed"
+
+        else:
+            print(
+                "Slack notification already sent. Skipping."
+            )
+
+        # -----------------------------
+        # Email notification
+        # -----------------------------
+
+        email_enabled = (
+            os.getenv(
+                "ENABLE_EMAIL_ALERTS",
+                "1"
+            ).strip().lower()
+            in ("1", "true", "yes")
+        )
+
+        if email_enabled:
+
+            if activity["email_status"] != "sent":
+
+                try:
+                    print("Sending email alert...")
+
+                    email_response = send_email_alert(row)
+
+                    print(email_response)
+
+                    update_alert_activity(
+                        connection,
+                        row["id"],
+                        alert_level,
+                        email_status="sent",
+                    )
+
+                    activity["email_status"] = "sent"
+
+                except Exception as exc:
+
+                    print(f"Email error: {exc}")
+
+                    update_alert_activity(
+                        connection,
+                        row["id"],
+                        alert_level,
+                        email_status="failed",
+                    )
+
+                    activity["email_status"] = "failed"
+
+            else:
+                print(
+                    "Email notification already sent. Skipping."
+                )
+
+        else:
+            print(
+                "Email alerts disabled for this test."
+            )
+
+        # -----------------------------
+        # Final notification status
+        # -----------------------------
+
+        if email_enabled:
+
+            fully_sent = (
+                activity["slack_status"] == "sent"
+                and activity["email_status"] == "sent"
+            )
+
+        else:
+
+            # For Day 5 testing, Slack alone is enough
+            # when email is deliberately disabled.
+            fully_sent = (
+                activity["slack_status"] == "sent"
+            )
+
+        if fully_sent:
+
+            update_alert_activity(
+                connection,
+                row["id"],
+                alert_level,
+                notification_status="sent",
+            )
+
+            print("Alert recorded successfully.")
+
+        else:
+
+            update_alert_activity(
+                connection,
+                row["id"],
+                alert_level,
+                notification_status="partial",
+            )
+
+            print(
+                "Alert recorded with partial "
+                "notification status."
+            )
 
     except mysql.connector.Error as exc:
         print(f"MySQL error: {exc}")
+
     except Exception as exc:
         print(f"Alert monitor error: {exc}")
+
     finally:
+
         if connection and connection.is_connected():
             connection.close()
 
