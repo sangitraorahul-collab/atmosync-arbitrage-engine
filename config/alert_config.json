@@ -1,0 +1,20 @@
+{
+  "alert_levels": {
+    "critical": {
+      "spoilage_risk": ["critical"],
+      "priority": "urgent"
+    },
+    "high": {
+      "spoilage_risk": ["high"],
+      "reroute_required": true,
+      "priority": "high"
+    }
+  },
+  "notifications": {
+    "slack": true,
+    "email": true
+  },
+  "testing": {
+    "max_records_per_run": 1
+  }
+}
